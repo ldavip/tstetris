@@ -111,7 +111,13 @@ export class TsTetris {
       for (let i = 0; i < shape.length; i++) {
         for (let j = 0; j < shape[0].length; j++) {
           if (shape[i][j].color && position) {
-            this.board[i + position.y][j + position.x] = new Block(piece.color);
+            const shapePosition = position.add(j, i);
+
+            if (this.isValid(shapePosition)) {
+              this.board[shapePosition.y][shapePosition.x] = new Block(piece.color);
+            } else {
+              console.error(`[updateBoard] The position (x: ${shapePosition.x}, y: ${shapePosition.y}) is invalid!`);
+            }
           }
         }
       }
@@ -174,10 +180,11 @@ export class TsTetris {
           this.addNextPiece();
           this.checkGameOver();
         } else {
-          if (this.hasColission(this.current, this.current.position.addY(1))) {
-            this.current.movable = false;
+          const newPosition = this.current.position.addY(1);
+          if (this.isValidPosition(this.current, newPosition) && !this.hasColission(this.current, newPosition)) {
+            this.current.position = newPosition;
           } else {
-            this.current.position = this.current.position?.addY(1);
+            this.current.movable = false;
           }
         }
         this.updateBoard();
@@ -194,6 +201,10 @@ export class TsTetris {
   }
 
   hasColission(piece: Tetromino, position: Position) {
+    if (!this.isValidPosition(piece, position)) {
+      return true;
+    }
+
     const pieces = this.tetrominoes.filter((p) => p != piece);
     const matrix = this.getCollisionMatrix(pieces);
 
@@ -201,13 +212,16 @@ export class TsTetris {
 
     for (let i = 0; i < shape.length; i++) {
       for (let j = 0; j < shape[0].length; j++) {
-        const x = j + position.x;
-        const y = i + position.y;
+        const matrixPosition = position.add(j, i);
 
-        const block = shape[i][j];
-        const matrixBlock = matrix[y][x];
+        if (this.isValid(matrixPosition)) {
+          const block = shape[i][j];
+          const matrixBlock = matrix[matrixPosition.y][matrixPosition.x];
 
-        if (block && block.color && matrixBlock) {
+          if (block && block.color && matrixBlock) {
+            return true;
+          }
+        } else {
           return true;
         }
       }
@@ -217,7 +231,10 @@ export class TsTetris {
   }
 
   checkGameOver() {
-    if (this.current.movable && this.hasColission(this.current, this.current.position.addY(1))) {
+    if (
+      this.current.movable &&
+      this.hasColission(this.current, this.current.position.addY(1))
+    ) {
       this.stop();
     }
   }
@@ -238,31 +255,18 @@ export class TsTetris {
       const pieces = this.getGameTetrominoes();
 
       // cut pieces of complete lines
-      // pieces.forEach((p) => p.cut(completeLines));
-      for (const p of pieces) {
-        p.cut(completeLines);
-      }
+      pieces.forEach((p) => p.cut(completeLines));
 
       // adjust pieces position
-      // pieces
-      //   .filter((p) => p.position.y < completeLines[linesCut - 1])
-      //   .forEach((p) => (p.position = p.position?.addY(linesCut)));
-
-      const piecesToCut = pieces
-        .filter((p) => p.position.y < completeLines[linesCut - 1]);
-      
-        for (const p of piecesToCut) {
-          p.position = p.position.addY(linesCut);
-        }
+      pieces
+        .filter((p) => p.position.y < completeLines[linesCut - 1])
+        .forEach((p) => (p.position = p.position?.addY(linesCut)));
 
       // find pieces completely cut
       const piecesCut = pieces.filter((p) => p.height === 0);
 
       // remove pieces
-      // piecesCut.forEach((p) => pieces.splice(pieces.indexOf(p)));
-      for (const p of piecesCut) {
-        pieces.splice(pieces.indexOf(p));
-      }
+      piecesCut.forEach((p) => pieces.splice(pieces.indexOf(p)));
 
       this.computeScore(linesCut);
     }
@@ -311,12 +315,13 @@ export class TsTetris {
   }
 
   getCollisionMatrix(pieces: Tetromino[]) {
-    const matrix = new Array<boolean[]>(TsTetris.HEIGHT);
+    const matrix: boolean[][] = [];
     for (let i = 0; i < TsTetris.HEIGHT; i++) {
-      matrix[i] = new Array<boolean>(TsTetris.WIDTH);
+      const line: boolean[] = [];
       for (let j = 0; j < TsTetris.WIDTH; j++) {
-        matrix[i][j] = false;
+        line.push(false);
       }
+      matrix.push(line);
     }
 
     for (const piece of pieces) {
@@ -326,11 +331,13 @@ export class TsTetris {
       for (let i = 0; i < shape.length; i++) {
         for (let j = 0; j < shape[0].length; j++) {
           const block = shape[i][j];
+          const matrixPosition = position.add(j, i);
 
-          const x = j + position.x;
-          const y = i + position.y;
-
-          matrix[y][x] = block && !!block.color;
+          if (this.isValid(matrixPosition)) {
+            matrix[matrixPosition.y][matrixPosition.x] = block && !!block.color;
+          } else {
+            console.error(`[getCollisionMatrix] Invalid position (x: ${matrixPosition.x}, y: ${matrixPosition.y})`);
+          }
         }
       }
     }
@@ -346,7 +353,7 @@ export class TsTetris {
         case Movement.LEFT:
           {
             const newPosition = this.current.position.addX(-1);
-            if (!this.hasColission(this.current, newPosition)) {
+            if (this.isValidPosition(this.current, newPosition) && !this.hasColission(this.current, newPosition)) {
               this.current.position = newPosition;
             }
           }
@@ -354,7 +361,7 @@ export class TsTetris {
         case Movement.RIGHT:
           {
             const newPosition = this.current.position.addX(1);
-            if (!this.hasColission(this.current, newPosition)) {
+            if (this.isValidPosition(this.current, newPosition) && !this.hasColission(this.current, newPosition)) {
               this.current.position = newPosition;
             }
           }
@@ -362,7 +369,7 @@ export class TsTetris {
         case Movement.SPEED:
           {
             const newPosition = this.current.position.addY(2);
-            if (!this.hasColission(this.current, newPosition)) {
+            if (this.isValidPosition(this.current, newPosition) && !this.hasColission(this.current, newPosition)) {
               this.current.position = newPosition;
             }
           }
@@ -384,5 +391,13 @@ export class TsTetris {
       this.LEVEL_INCREASE *= 2;
     }
     this.sortNextPiece();
+  }
+
+  isValid(position: Position): boolean {
+    return position.y < TsTetris.HEIGHT && position.x < TsTetris.WIDTH;
+  }
+
+  isValidPosition(piece: Tetromino, position: Position): boolean {
+    return this.isValid(position) && this.isValid(position.add(piece.width, piece.height));
   }
 }
